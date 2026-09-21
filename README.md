@@ -1,62 +1,15 @@
-test
+## setting
 
-[tasks.profile]
-description = "Show or select profiles for this machine"
-usage = '''
-arg "[profiles]" var=#true help="Profiles to enable"
+mise cfg
 
-complete "profiles" run='''
-find "$HOME/.config/mise" -maxdepth 1 -name 'config.*.toml' \
-  -exec basename {} \; |
-sed -E 's/^config\.//; s/\.toml$//' |
-sort
-'''
-'''
-run = '''
-#!/usr/bin/env bash
-set -euo pipefail
+## path specific use
 
-config_dir="$HOME/.config/mise"
+mise use --path {config_path} xxx@latest
 
-list_profiles() {
-  find "$config_dir" -maxdepth 1 -name 'config.*.toml' \
-    -exec basename {} \; |
-    sed -E 's/^config\.//; s/\.toml$//' |
-    sort
-}
+## bootstrap
 
-eval "profiles=(${usage_profiles:-})"
+mise bootstrap
 
-if (( ${#profiles[@]} == 0 )); then
-  echo "Available profiles:"
-  list_profiles | sed 's/^/  /'
+## brew-cast
 
-  if [[ -f "$config_dir/miserc.toml" ]]; then
-    echo
-    echo "Current:"
-    cat "$config_dir/miserc.toml"
-  fi
-
-  exit 0
-fi
-
-for profile in "${profiles[@]}"; do
-  [[ -f "$config_dir/config.$profile.toml" ]] || {
-    echo "Unknown profile: $profile" >&2
-    exit 1
-  }
-done
-
-{
-  echo 'auto_env = true'
-  printf 'env = ['
-  sep=''
-  for profile in "${profiles[@]}"; do
-    printf '%s"%s"' "$sep" "$profile"
-    sep=', '
-  done
-  echo ']'
-} > "$config_dir/miserc.toml"
-
-echo "Enabled: ${profiles[*]}"
-'''
+mise bootstrap packages use --path {config_path} brew-cask:package
