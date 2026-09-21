@@ -32,5 +32,4 @@ _.path = [
 ]
 
 [tasks.readme]
-description = "ts"
 run = "gh repo read-file README.md --repo Mkamono/macos"
