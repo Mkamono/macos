@@ -8,6 +8,8 @@
 [bootstrap.services.mise-history]
 builtin = "history-watch"
 
+[bootstrap.macos.dock]
+
 [tools]
 bottom = "latest"
 claude = "latest"
