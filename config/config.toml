@@ -38,9 +38,16 @@ _.path = [
 run = "gh repo read-file README.md --repo Mkamono/macos"
 
 [tasks.profile]
-description = "Select profiles for this machine"
+description = "Show or select profiles for this machine"
 usage = '''
-arg "<profiles>" var=#true help="Profiles to enable"
+arg "[profiles]" var=#true help="Profiles to enable"
+
+complete "profiles" run='''
+find "$HOME/.config/mise" -maxdepth 1 -name 'config.*.toml' \
+  -exec basename {} \; |
+sed -E 's/^config\.//; s/\.toml$//' |
+sort
+'''
 '''
 run = '''
 #!/usr/bin/env bash
@@ -48,19 +55,33 @@ set -euo pipefail
 
 config_dir="$HOME/.config/mise"
 
-eval "profiles=($usage_profiles)"
+list_profiles() {
+  find "$config_dir" -maxdepth 1 -name 'config.*.toml' \
+    -exec basename {} \; |
+    sed -E 's/^config\.//; s/\.toml$//' |
+    sort
+}
+
+eval "profiles=(${usage_profiles:-})"
+
+if (( ${#profiles[@]} == 0 )); then
+  echo "Available profiles:"
+  list_profiles | sed 's/^/  /'
+
+  if [[ -f "$config_dir/miserc.toml" ]]; then
+    echo
+    echo "Current:"
+    cat "$config_dir/miserc.toml"
+  fi
+
+  exit 0
+fi
 
 for profile in "${profiles[@]}"; do
-  file="$config_dir/config.$profile.toml"
-  if [[ ! -f "$file" ]]; then
+  [[ -f "$config_dir/config.$profile.toml" ]] || {
     echo "Unknown profile: $profile" >&2
-    echo "Available profiles:" >&2
-    find "$config_dir" -maxdepth 1 -name 'config.*.toml' \
-      -exec basename {} \; |
-      sed -E 's/^config\.|\.toml$//g' |
-      sort >&2
     exit 1
-  fi
+  }
 done
 
 {
@@ -74,5 +95,5 @@ done
   echo ']'
 } > "$config_dir/miserc.toml"
 
-echo "Enabled profiles: ${profiles[*]}"
+echo "Enabled: ${profiles[*]}"
 '''
