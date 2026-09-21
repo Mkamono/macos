@@ -1,0 +1,2 @@
+[tasks.tarttest]
+run = "echo tarttest"
