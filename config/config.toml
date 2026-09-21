@@ -2,6 +2,9 @@
 "~/.config/mise" = { mode = "track" }
 "~/.zshrc/activate" = { block = 'eval "$(~/.local/bin/mise activate zsh)"' }
 
+[history]
+exclude = ["~/.config/mise/miserc.toml"]
+
 [bootstrap.packages]
 "brew-cask:visual-studio-code" = "latest"
 
@@ -34,5 +37,4 @@ _.path = [
 [tasks.readme]
 run = "gh repo read-file README.md --repo Mkamono/macos"
 
-[history]
-exclude = ["~/.config/mise/miserc.toml"]
+
