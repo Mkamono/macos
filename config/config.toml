@@ -33,3 +33,6 @@ _.path = [
 
 [tasks.readme]
 run = "gh repo read-file README.md --repo Mkamono/macos"
+
+[history]
+exclude = ["~/.config/mise/miserc.toml"]
