@@ -37,7 +37,6 @@ _.path = [
 [tasks.readme]
 run = "gh repo read-file README.md --repo Mkamono/macos"
 
-
 [tasks.profile]
 description = "Select profiles for this machine"
 usage = '''
