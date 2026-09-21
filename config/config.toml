@@ -1,2 +1,5 @@
 [dotfiles]
 "~/.config/mise" = { mode = "track" }
+
+[bootstrap.mise_shell_activate]
+zsh = true
