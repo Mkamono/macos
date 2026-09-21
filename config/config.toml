@@ -6,6 +6,9 @@
 [bootstrap.packages]
 "brew-cask:visual-studio-code" = "latest"
 
+[bootstrap.services.mise-history]
+builin = "history-watch"
+
 [tools]
 bottom = "latest"
 claude = "latest"
@@ -18,3 +21,6 @@ _.path = [
     "/Applications/Visual Studio Code.app/Contents/Resources/app/bin",
     "HOME/.local/bin"
 ]
+
+[tasks.readme]
+run = "gh repo read-file README --repo Mkamono/macos"
