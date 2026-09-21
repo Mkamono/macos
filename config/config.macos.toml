@@ -1,2 +1,2 @@
-[tasks.test]
-run = "echo test"
+[tasks.test1]
+run = "echo test1"
