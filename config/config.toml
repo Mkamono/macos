@@ -15,6 +15,8 @@ autohide = true
 show_pathbar = true
 show_status_bar = true
 show_all_files = true
+sort_folders_fiest = true
+
 
 [tools]
 bottom = "latest"
