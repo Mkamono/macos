@@ -13,6 +13,7 @@ autohide = true
 
 [bootstrap.macos.finder]
 show_pathbar = true
+show_status_bar = true
 
 [tools]
 bottom = "latest"
