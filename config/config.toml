@@ -1,6 +1,5 @@
 [dotfiles]
 "~/.config/mise" = { mode = "track" }
-"~/.zprofile" = { mode = "track" }
 "~/.zshrc/activate" = { block = 'eval "$(~/.local/bin/mise activate zsh)"' }
 
 [bootstrap.packages]
