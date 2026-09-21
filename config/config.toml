@@ -11,6 +11,9 @@ builtin = "history-watch"
 [bootstrap.macos.dock]
 autohide = true
 
+[bootstrap.macos.finder]
+show_pathbar = true
+
 [tools]
 bottom = "latest"
 claude = "latest"
