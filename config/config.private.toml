@@ -1,3 +1,4 @@
 [bootstrap.packages]
 "brew-cask:bitwarden" = "latest"
 "brew-cask:spotify" = "latest"
+"brew-cask:steam" = "latest"
