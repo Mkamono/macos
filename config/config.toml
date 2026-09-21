@@ -36,3 +36,19 @@ _.path = [
 
 [tasks.readme]
 run = "gh repo read-file README.md --repo Mkamono/macos"
+
+[tasks.init_miserc]
+run = '''
+file="$HOME/.config/mise/miserc.toml"
+
+if [[ -e "$file" ]]; then
+  echo "already exists"
+  exit 1
+fi
+
+cat > "$file" <<'EOF'
+auto_env = true
+
+env = []
+EOF
+'''
