@@ -1,9 +1,24 @@
 [dotfiles]
 "~/.config/mise" = { mode = "track" }
 "~/.zprofile" = { mode = "track" }
+"~/.zshrc/activate" = { block = 'eval "$(~/.local/bin/mise activate zsh)"' }
+
 
 [bootstrap.mise_shell_activate]
 zsh = true
 
 [bootstrap.packages]
 "brew-cask:visual-studio-code" = "latest"
+
+[tools]
+bottom = "latest"
+claude = "latest"
+codex = "latest"
+gh = "latest"
+terraform = "latest"
+
+[env]
+_.path = [
+    "/Applications/Visual Studio Code.app/Contents/Resources/app/bin",
+    "HOME/.local/bin"
+]
