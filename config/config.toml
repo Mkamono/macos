@@ -22,4 +22,4 @@ _.path = [
 ]
 
 [tasks.readme]
-run = "gh repo read-file README --repo Mkamono/macos"
+run = "gh repo read-file README.md --repo Mkamono/macos"
