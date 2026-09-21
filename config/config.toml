@@ -9,6 +9,7 @@
 builtin = "history-watch"
 
 [bootstrap.macos.dock]
+autohide = true
 
 [tools]
 bottom = "latest"
