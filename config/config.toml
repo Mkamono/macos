@@ -9,6 +9,7 @@ exclude = ["~/.config/mise/miserc.toml"]
 "brew-cask:visual-studio-code" = "latest"
 "brew-cask:brave-browser" = "latest"
 "brew-cask:meetingbar" = "latest"
+"brew-cask:slack" = "latest"
 
 [bootstrap.services.mise-history]
 builtin = "history-watch"
