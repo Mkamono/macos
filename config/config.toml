@@ -4,3 +4,6 @@
 
 [bootstrap.mise_shell_activate]
 zsh = true
+
+[bootstrap.packages]
+"brew-cask:visual-studio-code" = "latest"
