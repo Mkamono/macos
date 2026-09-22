@@ -32,14 +32,6 @@ show_all_files = true
 sort_folders_first = true
 preferred_view_style = "list"
 
-# Window Tiling (macOS Sequoia+) shortcuts, rebound to plain Option+Arrow.
-# This is the com.apple.symbolichotkeys ID range that System Settings >
-# Keyboard > Keyboard Shortcuts > Window actually reads/writes (NSUserKeyEquivalents
-# on the "Window > Fill" menu path does NOT drive this feature, confirmed by
-# testing - it showed no effect in Settings or in practice).
-# IDs: 237=Fill, 240=Tile Left Half, 241=Tile Right Half, 243=Tile Bottom Half.
-# Modifier 524288 = Option. This overrides the system-wide Option+Arrow
-# word-jump shortcut everywhere - accepted tradeoff, rarely used.
 [[bootstrap.macos.defaults_entries]]
 domain = "com.apple.symbolichotkeys"
 key = "AppleSymbolicHotKeys"
