@@ -33,34 +33,36 @@ sort_folders_first = true
 preferred_view_style = "list"
 
 # Window Tiling (macOS Sequoia+) shortcuts, rebound to Option+Control+Arrow.
-# "Fill" is a top-level Window menu item; Left/Right/Bottom live under
-# Window > Move & Resize. Uses defaults_entries (not a whole-dict declaration)
-# so other NSUserKeyEquivalents entries (e.g. App Shortcuts set via System
-# Settings) aren't clobbered. Plain Option+Arrow is left alone since it's the
-# system-wide word-jump shortcut.
+# This is the com.apple.symbolichotkeys ID range that System Settings >
+# Keyboard > Keyboard Shortcuts > Window actually reads/writes (NSUserKeyEquivalents
+# on the "Window > Fill" menu path does NOT drive this feature, confirmed by
+# testing - it showed no effect in Settings or in practice).
+# IDs: 237=Fill, 240=Tile Left Half, 241=Tile Right Half, 243=Tile Bottom Half.
+# Modifier 786432 = Control(262144)+Option(524288). Plain Option+Arrow is left
+# alone since it's the system-wide word-jump shortcut.
 [[bootstrap.macos.defaults_entries]]
-domain = "NSGlobalDomain"
-key = "NSUserKeyEquivalents"
-path = ["\u001bWindow\u001bFill"]
-value = "~^"
+domain = "com.apple.symbolichotkeys"
+key = "AppleSymbolicHotKeys"
+path = ["237"]
+value = { enabled = true, value = { parameters = [65535, 126, 786432], type = "standard" } }
 
 [[bootstrap.macos.defaults_entries]]
-domain = "NSGlobalDomain"
-key = "NSUserKeyEquivalents"
-path = ["\u001bWindow\u001bMove & Resize\u001bLeft"]
-value = "~^"
+domain = "com.apple.symbolichotkeys"
+key = "AppleSymbolicHotKeys"
+path = ["240"]
+value = { enabled = true, value = { parameters = [65535, 123, 786432], type = "standard" } }
 
 [[bootstrap.macos.defaults_entries]]
-domain = "NSGlobalDomain"
-key = "NSUserKeyEquivalents"
-path = ["\u001bWindow\u001bMove & Resize\u001bRight"]
-value = "~^"
+domain = "com.apple.symbolichotkeys"
+key = "AppleSymbolicHotKeys"
+path = ["241"]
+value = { enabled = true, value = { parameters = [65535, 124, 786432], type = "standard" } }
 
 [[bootstrap.macos.defaults_entries]]
-domain = "NSGlobalDomain"
-key = "NSUserKeyEquivalents"
-path = ["\u001bWindow\u001bMove & Resize\u001bBottom"]
-value = "~^"
+domain = "com.apple.symbolichotkeys"
+key = "AppleSymbolicHotKeys"
+path = ["243"]
+value = { enabled = true, value = { parameters = [65535, 125, 786432], type = "standard" } }
 
 [tools]
 bottom = "latest"
