@@ -6,11 +6,19 @@
       "autosave": true,
       "encrypt": false,
       "variants": []
+    },
+    {
+      "path": "home/.config/rayvy",
+      "autosave": true,
+      "encrypt": false,
+      "variants": []
     }
   ],
   "exclude": [
     "~/.config/mise/miserc.toml"
   ],
   "recipients": [],
-  "permissions": {}
+  "permissions": {
+    "home/.config": 489
+  }
 }
