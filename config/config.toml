@@ -32,6 +32,25 @@ show_all_files = true
 sort_folders_first = true
 preferred_view_style = "list"
 
+# Window Tiling (macOS Sequoia+) shortcuts, rebound to Option+Control+Arrow.
+# IDs: 237=Fill, 240=Tile Left Half, 241=Tile Right Half, 243=Tile Bottom Half.
+# Plain Option+Arrow is left alone since it's the system-wide word-jump shortcut.
+[bootstrap.macos.defaults."com.apple.symbolichotkeys".AppleSymbolicHotKeys."237"]
+enabled = true
+value = { parameters = [65535, 126, 786432], type = "standard" }
+
+[bootstrap.macos.defaults."com.apple.symbolichotkeys".AppleSymbolicHotKeys."240"]
+enabled = true
+value = { parameters = [65535, 123, 786432], type = "standard" }
+
+[bootstrap.macos.defaults."com.apple.symbolichotkeys".AppleSymbolicHotKeys."241"]
+enabled = true
+value = { parameters = [65535, 124, 786432], type = "standard" }
+
+[bootstrap.macos.defaults."com.apple.symbolichotkeys".AppleSymbolicHotKeys."243"]
+enabled = true
+value = { parameters = [65535, 125, 786432], type = "standard" }
+
 [tools]
 bottom = "latest"
 claude = "latest"
