@@ -1,6 +1,7 @@
 [dotfiles]
 "~/.config/mise" = { mode = "track" }
 "~/.config/rayvy" = { mode = "track" }
+"~/.config/rayvy/config.toml" = { mode = "track" }
 "~/.zshrc/activate" = { block = 'eval "$(~/.local/bin/mise activate zsh)"' }
 
 [history]
