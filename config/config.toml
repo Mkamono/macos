@@ -19,7 +19,6 @@ sha256 = "3eaf7e53901a0b5ce465ab4c895e0f44a3f7815be30fa0c54a05db66f518c9f8"
 artifact = "Rayvy.app"
 os = "macos/arm64"
 
-
 [bootstrap.macos.launchd.agents.rayvy]
 program = "/Applications/Rayvy.app/Contents/MacOS/Rayvy"
 run_at_load = true
