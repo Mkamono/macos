@@ -8,12 +8,6 @@
       "variants": []
     },
     {
-      "path": "home/.config/rayvy",
-      "autosave": true,
-      "encrypt": false,
-      "variants": []
-    },
-    {
       "path": "home/.config/rayvy/config.toml",
       "autosave": true,
       "encrypt": false,
