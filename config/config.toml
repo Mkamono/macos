@@ -13,9 +13,9 @@ exclude = ["~/.config/mise/miserc.toml"]
 "brew-cask:slack" = "latest"
 
 [bootstrap.packages."macos-app:rayvy"]
-version = "0.2.0"
+version = "0.4.1"
 url = "https://github.com/Mkamono/rayvy/releases/download/v{{version}}/Rayvy-{{version}}-arm64.zip"
-sha256 = "5b4663e33f8f5f7b40faa2c35084653d2f3f833db4a36dfb6f839f44c7bcbd1f"
+sha256 = "398ccff2f719bea0182926415ff8e116f4822e7259fefbb1367f5389b6dcac73"
 artifact = "Rayvy.app"
 os = "macos/arm64"
 
