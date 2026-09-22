@@ -10,7 +10,6 @@ exclude = ["~/.config/mise/miserc.toml"]
 "brew-cask:brave-browser" = "latest"
 "brew-cask:meetingbar" = "latest"
 "brew-cask:slack" = "latest"
-"brew:msedit" = "latest"
 
 [bootstrap.packages."macos-app:rayvy"]
 version = "0.2.0"
