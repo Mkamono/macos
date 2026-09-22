@@ -12,6 +12,12 @@
       "autosave": true,
       "encrypt": false,
       "variants": []
+    },
+    {
+      "path": "home/.config/remap/config.json",
+      "autosave": true,
+      "encrypt": false,
+      "variants": []
     }
   ],
   "exclude": [

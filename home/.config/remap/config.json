@@ -1,0 +1,38 @@
+{
+  "mouse": {
+    "baseSpeed": 1536,
+    "scrollSpeed": 32,
+    "tickHz": 60,
+    "slowMinMultiplier": 0.04,
+    "slowMaxMultiplier": 1.0,
+    "slowRampSeconds": 1.5,
+    "fastMultiplier": 2.0
+  },
+  "mouseMode": {
+    "modeKey": "right_shift",
+    "moveUp": "e",
+    "moveDown": "d",
+    "moveLeft": "s",
+    "moveRight": "f",
+    "scroll": "semicolon",
+    "fast": "n",
+    "slow": "m",
+    "leftClick": "j",
+    "middleClick": "k",
+    "rightClick": "l"
+  },
+  "remap": {
+    "modifier": "control",
+    "bindings": {
+      "e": "up",
+      "d": "down",
+      "s": "left",
+      "f": "right",
+      "left_bracket": "escape",
+      "h": "delete"
+    }
+  },
+  "capsLock": {
+    "remapToControl": true
+  }
+}
