@@ -12,6 +12,13 @@ exclude = ["~/.config/mise/miserc.toml"]
 "brew-cask:slack" = "latest"
 "brew:msedit" = "latest"
 
+[bootstrap.packages."macos-app:rayvy"]
+version = "0.2.0"
+url = "https://github.com/Mkamono/rayvy/releases/download/v{{version}}/Rayvy-{{version}}-arm64.zip"
+sha256 = "5b4663e33f8f5f7b40faa2c35084653d2f3f833db4a36dfb6f839f44c7bcbd1f"
+artifact = "Rayvy.app"
+os = "macos/arm64"
+
 [bootstrap.services.mise-history]
 builtin = "history-watch"
 
