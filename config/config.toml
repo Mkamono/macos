@@ -62,7 +62,7 @@ value = { enabled = true, value = { parameters = [65535, 124, 524288], type = "s
 domain = "com.apple.symbolichotkeys"
 key = "AppleSymbolicHotKeys"
 path = ["243"]
-value = { enabled = true, value = { parameters = [65535, 125, 786432], type = "standard" } }
+value = { enabled = true, value = { parameters = [65535, 125, 524288], type = "standard" } }
 
 [tools]
 bottom = "latest"
