@@ -1,16 +1,20 @@
-[launcher]
-hotkey = "option+space"
-
 [clipboard]
 enabled = true
-max_items = 100
 excluded_bundle_ids = []
-hotkey = "cmd+shift+v"
+hotkey = 'cmd+shift+v'
+max_items = 100
+
+[launcher]
+hotkey = 'option+space'
 
 [[hotkeys]]
-key = "option+t"
-bundle_id = "com.mitchellh.ghostty"
+bundle_id = 'com.mitchellh.ghostty'
+key = 'option+t'
 
 [[hotkeys]]
-key = "option+b"
-bundle_id = "com.apple.Safari"
+bundle_id = 'com.apple.Safari'
+key = 'option+b'
+
+[[hotkeys]]
+bundle_id = 'com.apple.systempreferences'
+key = 'option+i'
