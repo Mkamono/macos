@@ -9,6 +9,8 @@ windows_onedrive = "disabled" # disabled or unmanaged; unmanaged does not re-ena
 windows_start_recommendations = "disabled" # enabled or disabled; leaves recent files/apps alone
 windows_tips_and_setup = "disabled" # enabled or disabled; tips, welcome, finish-setup reminders
 windows_settings_suggestions = "disabled" # enabled or disabled; suggested content in Settings
+windows_widgets_button = "disabled" # enabled or disabled; protected Windows builds require a Settings toggle
+windows_search_highlights = "disabled" # enabled or disabled; keeps normal Windows search working
 windows_remove_appx = """
 C27EB4BA.DropboxOEM
 Microsoft.MicrosoftSolitaireCollection
@@ -52,6 +54,8 @@ MISE_WINDOWS_ONEDRIVE = "{{ vars.windows_onedrive }}"
 MISE_WINDOWS_START_RECOMMENDATIONS = "{{ vars.windows_start_recommendations }}"
 MISE_WINDOWS_TIPS_AND_SETUP = "{{ vars.windows_tips_and_setup }}"
 MISE_WINDOWS_SETTINGS_SUGGESTIONS = "{{ vars.windows_settings_suggestions }}"
+MISE_WINDOWS_WIDGETS_BUTTON = "{{ vars.windows_widgets_button }}"
+MISE_WINDOWS_SEARCH_HIGHLIGHTS = "{{ vars.windows_search_highlights }}"
 
 [task_templates.windows-settings]
 shell = "powershell -NoLogo -NoProfile -NonInteractive -Command"
@@ -76,6 +80,8 @@ param(
     [ValidateSet('enabled', 'disabled')][string]$StartRecommendations = $env:MISE_WINDOWS_START_RECOMMENDATIONS,
     [ValidateSet('enabled', 'disabled')][string]$TipsAndSetup = $env:MISE_WINDOWS_TIPS_AND_SETUP,
     [ValidateSet('enabled', 'disabled')][string]$SettingsSuggestions = $env:MISE_WINDOWS_SETTINGS_SUGGESTIONS,
+    [ValidateSet('enabled', 'disabled')][string]$WidgetsButton = $env:MISE_WINDOWS_WIDGETS_BUTTON,
+    [ValidateSet('enabled', 'disabled')][string]$SearchHighlights = $env:MISE_WINDOWS_SEARCH_HIGHLIGHTS,
     [string]$ExpectedLocalPath = $env:MISE_WINDOWS_PURGE_PATH
 )
 
@@ -97,6 +103,8 @@ $personalAccountKey = 'HKCU:\Software\Microsoft\OneDrive\Accounts\Personal'
 # https://learn.microsoft.com/en-us/windows/apps/develop/settings/settings-windows-11
 # https://support.microsoft.com/en-us/windows/experience/notifications-and-do-not-disturb-in-windows
 # https://support.microsoft.com/en-us/windows/privacy/privacy-settings-for-recommendations-offers-in-windows-11
+# https://support.microsoft.com/en-us/windows/experience/personalization/customize-the-taskbar-in-windows
+# Widgets/search preferences added 2026-10-18; verify the user-facing controls on upgrades.
 $contentKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'
 $recommendationSettings = @(
     @{ Group = 'Start recommendations'; Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name = 'Start_IrisRecommendations'; Desired = $StartRecommendations },
@@ -106,7 +114,9 @@ $recommendationSettings = @(
     @{ Group = 'Finish setup reminders'; Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\UserProfileEngagement'; Name = 'ScoobeSystemSettingEnabled'; Desired = $TipsAndSetup },
     @{ Group = 'Settings suggestions'; Path = $contentKey; Name = 'SubscribedContent-338393Enabled'; Desired = $SettingsSuggestions },
     @{ Group = 'Settings suggestions'; Path = $contentKey; Name = 'SubscribedContent-353694Enabled'; Desired = $SettingsSuggestions },
-    @{ Group = 'Settings suggestions'; Path = $contentKey; Name = 'SubscribedContent-353696Enabled'; Desired = $SettingsSuggestions }
+    @{ Group = 'Settings suggestions'; Path = $contentKey; Name = 'SubscribedContent-353696Enabled'; Desired = $SettingsSuggestions },
+    @{ Group = 'Search highlights'; Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\SearchSettings'; Name = 'IsDynamicSearchBoxEnabled'; Desired = $SearchHighlights },
+    @{ Group = 'Taskbar Widgets button'; Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name = 'TaskbarDa'; Desired = $WidgetsButton }
 )
 $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $taskNames = @(
@@ -139,6 +149,21 @@ function Set-DWord([string]$Path, [string]$Name, [int]$Value) {
     if ((Read-Value $Path $Name) -ne $Value) {
         New-ItemProperty -LiteralPath $Path -Name $Name -Value $Value -PropertyType DWord -Force | Out-Null
     }
+}
+function Set-WidgetsButton([int]$Value) {
+    $path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'
+    if ((Read-Value $path 'TaskbarDa') -eq $Value) { return }
+    try {
+        Set-DWord $path 'TaskbarDa' $Value
+    } catch {
+        if ($_.CategoryInfo.Category -ne 'PermissionDenied') { throw }
+        # Windows can protect this user choice even from administrator writes.
+        # Use the supported Settings UI; do not disable protection or alter ACLs.
+        Start-Process 'ms-settings:taskbar'
+        $desired = if ($Value -eq 0) { 'Off' } else { 'On' }
+        throw "Windows protects the Widgets button preference. Set Widgets to $desired in Personalization > Taskbar, then rerun windows:apply. Other preferences have already been applied."
+    }
+    if ((Read-Value $path 'TaskbarDa') -ne $Value) { throw 'The Widgets button preference was not applied.' }
 }
 function Set-OneDrivePolicies {
     if ((Read-Value $policyKey 'DisablePersonalSync') -eq 1 -and
@@ -372,6 +397,8 @@ switch ($Action) {
         Get-Status | ConvertTo-Json -Depth 5
         Write-Output "Desired theme: $Theme; OneDrive: $OneDrive"
         Write-Output "Start recommendations: $StartRecommendations; Windows tips/welcome/setup: $TipsAndSetup; Settings suggestions: $SettingsSuggestions"
+        Write-Output "Taskbar Widgets button: $WidgetsButton; Search highlights: $SearchHighlights. Widgets packages and normal search are kept."
+        Write-Output 'If Windows protects TaskbarDa, Apply opens taskbar Settings and stops until the Widgets toggle matches. No protection bypass or elevation is attempted.'
         if ($OneDrive -eq 'disabled') {
             Write-Output 'Apply will block personal sync, uninstall the registered per-user client, restore redirected known folders without moving files, and remove current-user OneDrive startup tasks and Explorer integration.'
         }
@@ -385,7 +412,8 @@ switch ($Action) {
         Set-DWord $themeKey 'SystemUsesLightTheme' $light
         foreach ($setting in $recommendationSettings) {
             $value = if ($setting.Desired -eq 'enabled') { 1 } else { 0 }
-            Set-DWord $setting.Path $setting.Name $value
+            if ($setting.Group -eq 'Taskbar Widgets button') { Set-WidgetsButton $value }
+            else { Set-DWord $setting.Path $setting.Name $value }
             if ((Read-Value $setting.Path $setting.Name) -ne $value) { throw "Preference was not applied: $($setting.Name)" }
         }
         Get-Status | ConvertTo-Json -Depth 5
