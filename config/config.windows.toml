@@ -6,6 +6,9 @@
 [vars]
 windows_theme = "dark" # dark or light
 windows_onedrive = "disabled" # disabled or unmanaged; unmanaged does not re-enable it
+windows_start_recommendations = "disabled" # enabled or disabled; leaves recent files/apps alone
+windows_tips_and_setup = "disabled" # enabled or disabled; tips, welcome, finish-setup reminders
+windows_settings_suggestions = "disabled" # enabled or disabled; suggested content in Settings
 windows_remove_appx = """
 C27EB4BA.DropboxOEM
 Microsoft.MicrosoftSolitaireCollection
@@ -46,6 +49,9 @@ Microsoft 365 - ja-jp
 [env]
 MISE_WINDOWS_THEME = "{{ vars.windows_theme }}"
 MISE_WINDOWS_ONEDRIVE = "{{ vars.windows_onedrive }}"
+MISE_WINDOWS_START_RECOMMENDATIONS = "{{ vars.windows_start_recommendations }}"
+MISE_WINDOWS_TIPS_AND_SETUP = "{{ vars.windows_tips_and_setup }}"
+MISE_WINDOWS_SETTINGS_SUGGESTIONS = "{{ vars.windows_settings_suggestions }}"
 
 [task_templates.windows-settings]
 shell = "powershell -NoLogo -NoProfile -NonInteractive -Command"
@@ -67,6 +73,9 @@ param(
     [ValidateSet('Plan', 'Apply', 'Status', 'Purge')][string]$Action = $env:MISE_WINDOWS_ACTION,
     [ValidateSet('dark', 'light')][string]$Theme = $env:MISE_WINDOWS_THEME,
     [ValidateSet('disabled', 'unmanaged')][string]$OneDrive = $env:MISE_WINDOWS_ONEDRIVE,
+    [ValidateSet('enabled', 'disabled')][string]$StartRecommendations = $env:MISE_WINDOWS_START_RECOMMENDATIONS,
+    [ValidateSet('enabled', 'disabled')][string]$TipsAndSetup = $env:MISE_WINDOWS_TIPS_AND_SETUP,
+    [ValidateSet('enabled', 'disabled')][string]$SettingsSuggestions = $env:MISE_WINDOWS_SETTINGS_SUGGESTIONS,
     [string]$ExpectedLocalPath = $env:MISE_WINDOWS_PURGE_PATH
 )
 
@@ -80,6 +89,25 @@ $shellKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $policyKey = 'HKCU:\Software\Policies\Microsoft\OneDrive'
 $personalAccountKey = 'HKCU:\Software\Microsoft\OneDrive\Accounts\Personal'
+# Current-user preferences, not edition-limited CloudContent policies.
+# Registry writes are verified below. Windows can cache these preferences for a
+# signed-in session; sign out/in if the Settings controls retain their old state.
+# Checked against the Settings UI on Windows Home 26H2, build 26300, 2026-10-17.
+# Recheck the UI after Windows upgrades; these are preferences, not locked policies.
+# https://learn.microsoft.com/en-us/windows/apps/develop/settings/settings-windows-11
+# https://support.microsoft.com/en-us/windows/experience/notifications-and-do-not-disturb-in-windows
+# https://support.microsoft.com/en-us/windows/privacy/privacy-settings-for-recommendations-offers-in-windows-11
+$contentKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager'
+$recommendationSettings = @(
+    @{ Group = 'Start recommendations'; Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced'; Name = 'Start_IrisRecommendations'; Desired = $StartRecommendations },
+    @{ Group = 'Windows tips'; Path = $contentKey; Name = 'SubscribedContent-338389Enabled'; Desired = $TipsAndSetup },
+    @{ Group = 'Windows tips'; Path = $contentKey; Name = 'SoftLandingEnabled'; Desired = $TipsAndSetup },
+    @{ Group = 'Windows welcome'; Path = $contentKey; Name = 'SubscribedContent-310093Enabled'; Desired = $TipsAndSetup },
+    @{ Group = 'Finish setup reminders'; Path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\UserProfileEngagement'; Name = 'ScoobeSystemSettingEnabled'; Desired = $TipsAndSetup },
+    @{ Group = 'Settings suggestions'; Path = $contentKey; Name = 'SubscribedContent-338393Enabled'; Desired = $SettingsSuggestions },
+    @{ Group = 'Settings suggestions'; Path = $contentKey; Name = 'SubscribedContent-353694Enabled'; Desired = $SettingsSuggestions },
+    @{ Group = 'Settings suggestions'; Path = $contentKey; Name = 'SubscribedContent-353696Enabled'; Desired = $SettingsSuggestions }
+)
 $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 $taskNames = @(
     "OneDrive Reporting Task-$sid",
@@ -176,6 +204,11 @@ function Get-Status {
         WindowsEdition = Read-Value 'HKLM:\Software\Microsoft\Windows NT\CurrentVersion' 'EditionID'
         AppsUseLightTheme = Read-Value 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' 'AppsUseLightTheme'
         SystemUsesLightTheme = Read-Value 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' 'SystemUsesLightTheme'
+        RecommendationPreferences = @($recommendationSettings | ForEach-Object {
+            $expected = if ($_.Desired -eq 'enabled') { 1 } else { 0 }
+            $current = Read-Value $_.Path $_.Name
+            [pscustomobject]@{ Group = $_.Group; Name = $_.Name; Value = $current; DesiredValue = $expected; Matches = ($null -ne $current -and $current -eq $expected) }
+        })
         OneDriveInstalled = (@(Get-Installations).Count -gt 0)
         OneDriveProcessCount = @(Get-Process -Name OneDrive -ErrorAction SilentlyContinue).Count
         OneDriveStartup = Read-Value $runKey 'OneDrive'
@@ -338,6 +371,7 @@ switch ($Action) {
     'Plan' {
         Get-Status | ConvertTo-Json -Depth 5
         Write-Output "Desired theme: $Theme; OneDrive: $OneDrive"
+        Write-Output "Start recommendations: $StartRecommendations; Windows tips/welcome/setup: $TipsAndSetup; Settings suggestions: $SettingsSuggestions"
         if ($OneDrive -eq 'disabled') {
             Write-Output 'Apply will block personal sync, uninstall the registered per-user client, restore redirected known folders without moving files, and remove current-user OneDrive startup tasks and Explorer integration.'
         }
@@ -349,8 +383,13 @@ switch ($Action) {
         $themeKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
         Set-DWord $themeKey 'AppsUseLightTheme' $light
         Set-DWord $themeKey 'SystemUsesLightTheme' $light
+        foreach ($setting in $recommendationSettings) {
+            $value = if ($setting.Desired -eq 'enabled') { 1 } else { 0 }
+            Set-DWord $setting.Path $setting.Name $value
+            if ((Read-Value $setting.Path $setting.Name) -ne $value) { throw "Preference was not applied: $($setting.Name)" }
+        }
         Get-Status | ConvertTo-Json -Depth 5
-        Write-Output 'Sign out later if Explorer or applications still show their previous locations or theme.'
+        Write-Output 'Sign out/in if Explorer or Settings still show previous locations, theme, or recommendation preferences.'
     }
     'Purge' { Remove-LocalOneDriveData }
 }
@@ -362,12 +401,12 @@ extends = "windows-settings"
 env.MISE_WINDOWS_ACTION = "Plan"
 
 [tasks."windows:apply"]
-description = "Apply theme and disable OneDrive for the current user; keep user files"
+description = "Apply theme, recommendation preferences, and OneDrive settings for the current user"
 extends = "windows-settings"
 env.MISE_WINDOWS_ACTION = "Apply"
 
 [tasks."windows:status"]
-description = "Read Windows theme, OneDrive installation, startup, and folder state"
+description = "Read Windows theme, recommendation preferences, and OneDrive state"
 extends = "windows-settings"
 env.MISE_WINDOWS_ACTION = "Status"
 
