@@ -15,10 +15,32 @@ Microsoft.BingNews
 Microsoft.BingWeather
 Microsoft.Windows.DevHome
 Microsoft.OneDriveSync
+Microsoft.MixedRealityLink
+Microsoft.MicrosoftJournal
+Microsoft.Whiteboard
+Microsoft.PowerAutomateDesktop
+Microsoft.WindowsFeedbackHub
+Microsoft.GetHelp
+Microsoft.Todos
+Microsoft.MicrosoftStickyNotes
+MSTeams
+Microsoft.OutlookForWindows
+Microsoft.GamingApp
+Microsoft.XboxGamingOverlay
+Microsoft.XboxIdentityProvider
+Microsoft.XboxSpeechToTextOverlay
+Microsoft.Xbox.TCUI
+Microsoft.YourPhone
 """
 windows_remove_desktop = """
 Lenovo Now
 Copilot
+Smart Connect
+Microsoft 365 - ja-jp
+"""
+# Click-to-Run requires elevation and its normal removal dialog on this PC.
+windows_remove_desktop_elevated = """
+Microsoft 365 - ja-jp
 """
 
 [env]
@@ -368,12 +390,14 @@ env.MISE_WINDOWS_PURGE_PATH = "{{ env.USERPROFILE }}/OneDrive"
 shell = "powershell -NoLogo -NoProfile -NonInteractive -Command"
 env.MISE_WINDOWS_REMOVE_APPX = "{{ vars.windows_remove_appx }}"
 env.MISE_WINDOWS_REMOVE_DESKTOP = "{{ vars.windows_remove_desktop }}"
+env.MISE_WINDOWS_REMOVE_DESKTOP_ELEVATED = "{{ vars.windows_remove_desktop_elevated }}"
 run = '''
 $ErrorActionPreference = 'Stop'
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'Windows only.' }
 $action = $env:MISE_WINDOWS_APPS_ACTION
 $appxNames = @($env:MISE_WINDOWS_REMOVE_APPX -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $desktopNames = @($env:MISE_WINDOWS_REMOVE_DESKTOP -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$elevatedNames = @($env:MISE_WINDOWS_REMOVE_DESKTOP_ELEVATED -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 $mcafeeNames = @('McAfee', 'マカフィーが提供するウェブアドバイザー', 'WebAdvisor by McAfee')
 
 function Find-DesktopApp([string]$Name) {
@@ -411,14 +435,22 @@ function Show-AppState {
         Defender = Read-Protection
     } | ConvertTo-Json -Depth 5
 }
-function Remove-DesktopApp([string]$Name, [switch]$Interactive) {
+function Remove-DesktopApp([string]$Name, [switch]$Interactive, [switch]$Elevated) {
     $found = @(Find-DesktopApp $Name)
     if ($found.Count -eq 0) { Write-Output "Already absent: $Name"; return }
     if ($found.Count -ne 1) { throw "Ambiguous installed product: $Name" }
     $arguments = @('uninstall', '--product-code', $found[0].ProductCode, '--exact', '--disable-interactivity', '--accept-source-agreements')
     $arguments += $(if ($Interactive) { '--interactive' } else { '--silent' })
-    & winget @arguments
-    $code = $LASTEXITCODE
+    if ($Elevated) {
+        # Start-Process joins arguments; quote the exact registered product code.
+        if ($found[0].ProductCode -match '["\r\n]') { throw 'Unexpected product code for elevation.' }
+        $arguments[2] = '"' + $found[0].ProductCode + '"'
+        $child = Start-Process -FilePath (Get-Command winget -CommandType Application).Source -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -PassThru -Wait
+        $code = $child.ExitCode
+    } else {
+        & winget @arguments
+        $code = $LASTEXITCODE
+    }
     if ($code -eq 3010 -or $code -eq 1641) {
         Write-Warning 'The uninstaller reported that a restart is required.'
     } elseif ($code -ne 0) {
@@ -427,6 +459,10 @@ function Remove-DesktopApp([string]$Name, [switch]$Interactive) {
         } else {
             throw "Uninstall failed for $Name (exit $code). No fallback deletion will be attempted."
         }
+    }
+    # Some uninstallers return while their child process is finishing removal.
+    if ($code -eq 0) {
+        for ($attempt = 0; $attempt -lt 30 -and @(Find-DesktopApp $Name).Count; $attempt++) { Start-Sleep -Seconds 1 }
     }
     if (@(Find-DesktopApp $Name).Count) { throw "$Name is still registered. Complete its uninstaller or restart, then check again." }
 }
@@ -450,7 +486,8 @@ switch ($action) {
     'Apply' {
         foreach ($name in $desktopNames) {
             if ($mcafeeNames -contains $name) { throw 'McAfee must use the separate removal task.' }
-            Remove-DesktopApp $name
+            $elevated = $elevatedNames -contains $name
+            Remove-DesktopApp $name -Elevated:$elevated -Interactive:$elevated
         }
         foreach ($name in $appxNames) {
             if ($name -eq 'McAfeeWPSSparsePackage') { throw 'McAfee must use the separate removal task.' }
