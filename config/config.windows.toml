@@ -1,0 +1,55 @@
+# Windows preferences only: no packages, tools, or automatic bootstrap hooks.
+# Add beside config.toml, then load explicitly with mise -E windows.
+# Applying: mise -E windows run --skip-tools windows:apply
+# Checking: mise -E windows run --skip-tools windows:status
+
+[vars]
+windows_theme = "dark" # dark or light
+
+[tasks."windows:apply"]
+description = "Apply the Windows and app color mode for the current user"
+shell = "powershell -NoLogo -NoProfile -NonInteractive -Command"
+run = '''
+$ErrorActionPreference = 'Stop'
+if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
+    throw 'This task is for Windows only.'
+}
+$theme = '{{ vars.windows_theme }}'
+if ($theme -notin @('dark', 'light')) {
+    throw 'windows_theme must be dark or light.'
+}
+$light = if ($theme -eq 'dark') { 0 } else { 1 }
+$path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
+if (-not (Test-Path -LiteralPath $path)) {
+    New-Item -Path $path -Force | Out-Null
+}
+foreach ($name in @('AppsUseLightTheme', 'SystemUsesLightTheme')) {
+    $current = Get-ItemProperty -LiteralPath $path -Name $name -ErrorAction SilentlyContinue
+    if ($null -eq $current -or $current.$name -ne $light) {
+        New-ItemProperty -LiteralPath $path -Name $name -PropertyType DWord -Value $light -Force | Out-Null
+    }
+}
+$actual = Get-ItemProperty -LiteralPath $path
+if ($actual.AppsUseLightTheme -ne $light -or $actual.SystemUsesLightTheme -ne $light) {
+    throw 'The color mode did not match the requested state.'
+}
+Write-Output ('Windows and app color mode: ' + $theme)
+Write-Output 'Reopen apps or sign out later if their appearance has not refreshed.'
+'''
+
+[tasks."windows:status"]
+description = "Read the current Windows and app color mode without changing it"
+shell = "powershell -NoLogo -NoProfile -NonInteractive -Command"
+run = '''
+$ErrorActionPreference = 'Stop'
+if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
+    throw 'This task is for Windows only.'
+}
+$path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
+$current = Get-ItemProperty -LiteralPath $path -ErrorAction SilentlyContinue
+foreach ($name in @('SystemUsesLightTheme', 'AppsUseLightTheme')) {
+    $value = if ($null -ne $current) { $current.$name } else { $null }
+    $mode = if ($null -eq $value) { 'not set' } elseif ($value -eq 0) { 'dark' } elseif ($value -eq 1) { 'light' } else { 'unknown' }
+    Write-Output ($name + ': ' + $mode)
+}
+'''
