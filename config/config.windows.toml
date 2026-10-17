@@ -1,55 +1,494 @@
-# Windows preferences only: no packages, tools, or automatic bootstrap hooks.
-# Add beside config.toml, then load explicitly with mise -E windows.
-# Applying: mise -E windows run --skip-tools windows:apply
-# Checking: mise -E windows run --skip-tools windows:status
+# Windows preferences only. No packages or tools are installed.
+# On Windows, point MISE_GLOBAL_CONFIG_FILE to this file. Do not adopt the macOS config.
+# Apply never deletes user files. Local deletion requires the separate purge task.
+# Inline PowerShell uses normal command execution without changing execution policy.
 
 [vars]
 windows_theme = "dark" # dark or light
+windows_onedrive = "disabled" # disabled or unmanaged; unmanaged does not re-enable it
+windows_remove_appx = """
+C27EB4BA.DropboxOEM
+Microsoft.MicrosoftSolitaireCollection
+Microsoft.Copilot
+Clipchamp.Clipchamp
+Microsoft.BingNews
+Microsoft.BingWeather
+Microsoft.Windows.DevHome
+Microsoft.OneDriveSync
+"""
+windows_remove_desktop = """
+Lenovo Now
+Copilot
+"""
 
-[tasks."windows:apply"]
-description = "Apply the Windows and app color mode for the current user"
+[env]
+MISE_WINDOWS_THEME = "{{ vars.windows_theme }}"
+MISE_WINDOWS_ONEDRIVE = "{{ vars.windows_onedrive }}"
+
+[task_templates.windows-settings]
 shell = "powershell -NoLogo -NoProfile -NonInteractive -Command"
 run = '''
+# Researched 2026-10-17. Current-user Windows setup, including Windows Home.
+# No cloud API calls, downloads, or deletion of cloud files.
+# Sources:
+# https://support.microsoft.com/en-us/onedrive/turn-off-disable-or-uninstall-onedrive
+# https://support.microsoft.com/en-us/onedrive/permanently-delete-your-entire-onedrive
+# https://learn.microsoft.com/en-us/sharepoint/use-group-policy
+# https://learn.microsoft.com/en-us/windows/win32/api/shlobj_core/nf-shlobj_core-shsetknownfolderpath
+# https://learn.microsoft.com/en-us/windows/win32/shell/knownfolderid
+# DisableFileSyncNGSC is not relied upon: its documented editions exclude Home.
+# The installer is discovered from the installed product's uninstall registration.
+# Reapply after a Windows update if OneDrive is installed again.
+
+[CmdletBinding()]
+param(
+    [ValidateSet('Plan', 'Apply', 'Status', 'Purge')][string]$Action = $env:MISE_WINDOWS_ACTION,
+    [ValidateSet('dark', 'light')][string]$Theme = $env:MISE_WINDOWS_THEME,
+    [ValidateSet('disabled', 'unmanaged')][string]$OneDrive = $env:MISE_WINDOWS_ONEDRIVE,
+    [string]$ExpectedLocalPath = $env:MISE_WINDOWS_PURGE_PATH
+)
+
 $ErrorActionPreference = 'Stop'
 if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
-    throw 'This task is for Windows only.'
+    throw 'This script is for Windows only.'
 }
-$theme = '{{ vars.windows_theme }}'
-if ($theme -notin @('dark', 'light')) {
-    throw 'windows_theme must be dark or light.'
+$profileRoot = [IO.Path]::GetFullPath($env:USERPROFILE).TrimEnd('\')
+$localRoot = [IO.Path]::GetFullPath((Join-Path $profileRoot 'OneDrive')).TrimEnd('\')
+$shellKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders'
+$runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$policyKey = 'HKCU:\Software\Policies\Microsoft\OneDrive'
+$personalAccountKey = 'HKCU:\Software\Microsoft\OneDrive\Accounts\Personal'
+$sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$taskNames = @(
+    "OneDrive Reporting Task-$sid",
+    "OneDrive Standalone Update Task-$sid",
+    "OneDrive Startup Task-$sid"
+)
+$folders = @(
+    @{ Name = 'Desktop'; Id = 'B4BFCC3A-DB2C-424C-B029-7FE99A87C641'; Keys = @('Desktop', '{754AC886-DF64-4CBA-86B5-F7FBF4FBCEF5}') },
+    @{ Name = 'Documents'; Id = 'FDD39AD0-238F-46AF-ADB4-6C85480369C7'; Keys = @('Personal', '{F42EE2D3-909F-4907-8871-4C22FC0BF756}') },
+    @{ Name = 'Pictures'; Id = '33E28130-4E1E-4676-835A-98395C3BC3BB'; Keys = @('My Pictures', '{0DDD015D-B06C-45D5-8C4C-F59713854639}') },
+    @{ Name = 'Pictures\Camera Roll'; Id = 'AB5FB87B-7CE2-4F83-915D-550846C9537B'; Keys = @('{AB5FB87B-7CE2-4F83-915D-550846C9537B}') }
+)
+
+function Read-Value([string]$Path, [string]$Name) {
+    if (Test-Path -LiteralPath $Path) {
+        $key = Get-Item -LiteralPath $Path
+        return $key.GetValue($Name, $null)
+    }
+    return $null
 }
-$light = if ($theme -eq 'dark') { 0 } else { 1 }
-$path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
-if (-not (Test-Path -LiteralPath $path)) {
-    New-Item -Path $path -Force | Out-Null
+function Is-UnderRoot([string]$Path, [string]$Root) {
+    if ([string]::IsNullOrWhiteSpace($Path)) { return $false }
+    $full = [IO.Path]::GetFullPath([Environment]::ExpandEnvironmentVariables($Path)).TrimEnd('\')
+    return $full.Equals($Root, [StringComparison]::OrdinalIgnoreCase) -or
+        $full.StartsWith($Root + '\', [StringComparison]::OrdinalIgnoreCase)
 }
-foreach ($name in @('AppsUseLightTheme', 'SystemUsesLightTheme')) {
-    $current = Get-ItemProperty -LiteralPath $path -Name $name -ErrorAction SilentlyContinue
-    if ($null -eq $current -or $current.$name -ne $light) {
-        New-ItemProperty -LiteralPath $path -Name $name -PropertyType DWord -Value $light -Force | Out-Null
+function Set-DWord([string]$Path, [string]$Name, [int]$Value) {
+    if (-not (Test-Path -LiteralPath $Path)) { New-Item -Path $Path -Force | Out-Null }
+    if ((Read-Value $Path $Name) -ne $Value) {
+        New-ItemProperty -LiteralPath $Path -Name $Name -Value $Value -PropertyType DWord -Force | Out-Null
     }
 }
-$actual = Get-ItemProperty -LiteralPath $path
-if ($actual.AppsUseLightTheme -ne $light -or $actual.SystemUsesLightTheme -ne $light) {
-    throw 'The color mode did not match the requested state.'
+function Set-OneDrivePolicies {
+    if ((Read-Value $policyKey 'DisablePersonalSync') -eq 1 -and
+        (Read-Value $policyKey 'EnableAutoStart') -eq 0) { return }
+    try {
+        Set-DWord $policyKey 'DisablePersonalSync' 1
+        Set-DWord $policyKey 'EnableAutoStart' 0
+    } catch {
+        if ($_.CategoryInfo.Category -ne 'PermissionDenied') { throw }
+        # Windows protects policy keys even under HKCU. Elevate only these writes.
+        # Refuse a different administrator account so HKCU cannot target another user.
+        $code = @'
+$ErrorActionPreference = 'Stop';
+if ([Security.Principal.WindowsIdentity]::GetCurrent().User.Value -ne '__SID__') { exit 2 };
+try {
+    $key = 'HKCU:\Software\Policies\Microsoft\OneDrive';
+    if (-not (Test-Path -LiteralPath $key)) { New-Item -Path $key -Force | Out-Null };
+    New-ItemProperty -LiteralPath $key -Name 'DisablePersonalSync' -PropertyType DWord -Value 1 -Force | Out-Null;
+    New-ItemProperty -LiteralPath $key -Name 'EnableAutoStart' -PropertyType DWord -Value 0 -Force | Out-Null;
+    exit 0
+} catch { exit 1 }
+'@
+        $code = $code.Replace('__SID__', $sid) -replace '\r?\n', ' '
+        $arguments = '-NoLogo -NoProfile -NonInteractive -Command "& { ' + $code + ' }"'
+        $child = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -ArgumentList $arguments -Verb RunAs -WindowStyle Hidden -PassThru -Wait
+        if ($child.ExitCode -ne 0) { throw "OneDrive policy elevation failed or used another account (exit $($child.ExitCode))." }
+    }
+    if ((Read-Value $policyKey 'DisablePersonalSync') -ne 1 -or
+        (Read-Value $policyKey 'EnableAutoStart') -ne 0) { throw 'The requested OneDrive policies were not applied.' }
 }
-Write-Output ('Windows and app color mode: ' + $theme)
-Write-Output 'Reopen apps or sign out later if their appearance has not refreshed.'
+function Get-Installations {
+    foreach ($base in @(
+        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
+        'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
+        'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+    )) {
+        if (Test-Path -LiteralPath $base) {
+            Get-ChildItem -LiteralPath $base | ForEach-Object {
+                $item = Get-ItemProperty -LiteralPath $_.PSPath
+                if ($item.DisplayName -eq 'Microsoft OneDrive') {
+                    [pscustomobject]@{
+                        Scope = $(if ($base.StartsWith('HKCU:')) { 'user' } else { 'machine' })
+                        RegistryPath = $_.PSPath
+                        UninstallString = $item.UninstallString
+                    }
+                }
+            }
+        }
+    }
+}
+function Get-OurTasks {
+    # Only exact OneDrive task names belonging to this Windows user's SID.
+    foreach ($name in $taskNames) {
+        Get-ScheduledTask -TaskPath '\' -TaskName $name -ErrorAction SilentlyContinue
+    }
+}
+function Get-Status {
+    $folderState = [ordered]@{}
+    foreach ($folder in $folders) {
+        foreach ($key in $folder.Keys) { $folderState[$key] = Read-Value $shellKey $key }
+    }
+    [pscustomobject]@{
+        WindowsEdition = Read-Value 'HKLM:\Software\Microsoft\Windows NT\CurrentVersion' 'EditionID'
+        AppsUseLightTheme = Read-Value 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' 'AppsUseLightTheme'
+        SystemUsesLightTheme = Read-Value 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize' 'SystemUsesLightTheme'
+        OneDriveInstalled = (@(Get-Installations).Count -gt 0)
+        OneDriveProcessCount = @(Get-Process -Name OneDrive -ErrorAction SilentlyContinue).Count
+        OneDriveStartup = Read-Value $runKey 'OneDrive'
+        OneDriveSetupStartup = Read-Value $runKey 'OneDriveSetup'
+        PersonalSyncBlocked = ((Read-Value $policyKey 'DisablePersonalSync') -eq 1)
+        ScheduledTasks = @(Get-OurTasks | Select-Object -ExpandProperty TaskName)
+        KnownFolders = $folderState
+        LocalOneDrivePath = $localRoot
+        LocalOneDriveExists = Test-Path -LiteralPath $localRoot
+    }
+}
+function Assert-DefaultOneDriveRoot {
+    $registeredRoot = Read-Value $personalAccountKey 'UserFolder'
+    if ($registeredRoot -and -not ([IO.Path]::GetFullPath($registeredRoot).TrimEnd('\').Equals($localRoot, [StringComparison]::OrdinalIgnoreCase))) {
+        throw 'A custom OneDrive location was found. Review it before running this default-root recipe.'
+    }
+}
+function Restore-LocalFolders {
+    if (-not ('MiseWindowsKnownFolders' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class MiseWindowsKnownFolders {
+    [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
+    public static extern int SHSetKnownFolderPath(ref Guid id, uint flags, IntPtr token, string path);
+}
+'@
+    }
+    foreach ($folder in $folders) {
+        $target = Join-Path $profileRoot $folder.Name
+        $current = Read-Value $shellKey $folder.Keys[0]
+        if (Is-UnderRoot $current $localRoot) {
+            if (-not (Test-Path -LiteralPath $target)) { New-Item -ItemType Directory -Path $target | Out-Null }
+            $targetItem = Get-Item -LiteralPath $target
+            if ($targetItem.LinkType) { throw "The local target is a link: $target" }
+            $id = [Guid]$folder.Id
+            $result = [MiseWindowsKnownFolders]::SHSetKnownFolderPath([ref]$id, 0, [IntPtr]::Zero, $target)
+            if ($result -ne 0) { [Runtime.InteropServices.Marshal]::ThrowExceptionForHR($result) }
+            # Keep the local-folder aliases consistent if OneDrive redirected them too.
+            foreach ($key in $folder.Keys) {
+                if (Is-UnderRoot (Read-Value $shellKey $key) $localRoot) {
+                    New-ItemProperty -LiteralPath $shellKey -Name $key -Value ('%USERPROFILE%\' + $folder.Name) -PropertyType ExpandString -Force | Out-Null
+                }
+            }
+        }
+    }
+    # These are OneDrive-specific known-folder overrides, not local folders.
+    # Remove stale overrides after uninstalling instead of redirecting them to local data.
+    foreach ($name in @(
+        '{A52BBA46-E9E1-435F-B3D9-28DAA648C0F6}', # SkyDrive
+        '{24D89E24-2F19-4534-9DDE-6A6671FBB8FE}', # SkyDriveDocuments
+        '{339719B5-8C47-4894-94C2-D8F77ADD44A6}', # SkyDrivePictures
+        '{767E6811-49CB-4273-87C2-20F355E1085B}'  # SkyDriveCameraRoll
+    )) {
+        if (Is-UnderRoot (Read-Value $shellKey $name) $localRoot) {
+            Remove-ItemProperty -LiteralPath $shellKey -Name $name
+        }
+    }
+}
+function Disable-OneDrive {
+    Assert-DefaultOneDriveRoot
+    $installations = @(Get-Installations)
+    if (@($installations | Where-Object Scope -eq 'machine').Count) {
+        throw 'A machine-wide OneDrive installation needs a separately reviewed administrator uninstall.'
+    }
+    # Use the module from this interpreter, not an inherited PowerShell 7 module path.
+    Import-Module (Join-Path $PSHOME 'Modules/Microsoft.PowerShell.Security/Microsoft.PowerShell.Security.psd1') -ErrorAction Stop
+    # Validate every installer before making any changes.
+    $installers = @($installations | ForEach-Object {
+        if ($_.UninstallString -notmatch '^"(?<exe>[^"\r\n]+\\OneDriveSetup\.exe)"\s+/uninstall\s*$') {
+            throw 'The registered OneDrive uninstall command has changed. Review it before continuing.'
+        }
+        $exe = $Matches.exe
+        if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { throw "Uninstaller missing: $exe" }
+        $signature = Get-AuthenticodeSignature -LiteralPath $exe
+        if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'O=Microsoft Corporation(?:,|$)') {
+            throw 'The OneDrive uninstaller does not have a valid Microsoft signature.'
+        }
+        $exe
+    })
+    Set-OneDrivePolicies
+    $sessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
+    Get-Process -Name OneDrive -ErrorAction SilentlyContinue |
+        Where-Object SessionId -eq $sessionId | Stop-Process -Force
+    foreach ($exe in $installers) {
+        $process = Start-Process -FilePath $exe -ArgumentList '/uninstall' -PassThru -Wait -WindowStyle Hidden
+        if ($process.ExitCode -ne 0) { throw "OneDrive uninstall failed with exit code $($process.ExitCode)." }
+    }
+    for ($attempt = 0; $attempt -lt 15 -and @(Get-Installations).Count; $attempt++) { Start-Sleep -Seconds 1 }
+    if (@(Get-Installations).Count) { throw 'OneDrive is still registered as installed. No user files have been deleted.' }
+    Restore-LocalFolders
+    foreach ($name in @('OneDrive', 'OneDriveSetup')) {
+        $command = Read-Value $runKey $name
+        if ($command) {
+            if ($command -notmatch '(?i)OneDrive(?:Setup)?\.exe') { throw "Unexpected startup command for $name; review it manually." }
+            Remove-ItemProperty -LiteralPath $runKey -Name $name
+        }
+    }
+    foreach ($task in @(Get-OurTasks)) { Unregister-ScheduledTask -TaskPath $task.TaskPath -TaskName $task.TaskName -Confirm:$false }
+    foreach ($name in @('OneDrive', 'OneDriveConsumer')) {
+        $value = [Environment]::GetEnvironmentVariable($name, 'User')
+        if (Is-UnderRoot $value $localRoot) { [Environment]::SetEnvironmentVariable($name, $null, 'User') }
+    }
+    $classId = '{018D5C66-4533-4307-9B53-224DE2ED1FE6}'
+    Set-DWord "HKCU:\Software\Classes\CLSID\$classId" 'System.IsPinnedToNameSpaceTree' 0
+    $namespace = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Desktop\NameSpace\$classId"
+    if (Test-Path -LiteralPath $namespace) { Remove-Item -LiteralPath $namespace }
+    if (@(Get-Process -Name OneDrive -ErrorAction SilentlyContinue).Count) { throw 'A OneDrive process is still running. Local data must not be deleted.' }
+    foreach ($folder in $folders) {
+        foreach ($key in $folder.Keys) {
+            if (Is-UnderRoot (Read-Value $shellKey $key) $localRoot) { throw "A known folder is still inside OneDrive: $key" }
+        }
+    }
+    Write-Output 'OneDrive disabled for the current user. Known folders are local. User files were not copied or deleted.'
+}
+function Remove-LocalOneDriveData {
+    # This is deliberately excluded from Apply, including all future reapplications.
+    Assert-DefaultOneDriveRoot
+    if (-not $ExpectedLocalPath -or -not ([IO.Path]::GetFullPath($ExpectedLocalPath).TrimEnd('\').Equals($localRoot, [StringComparison]::OrdinalIgnoreCase))) {
+        throw 'Deletion requires the exact default USERPROFILE\OneDrive path.'
+    }
+    if (-not ([IO.Path]::GetDirectoryName($localRoot).Equals($profileRoot, [StringComparison]::OrdinalIgnoreCase))) { throw 'Unsafe deletion target.' }
+    if (@(Get-Installations).Count -or @(Get-Process -Name OneDrive -ErrorAction SilentlyContinue).Count) {
+        throw 'Uninstall OneDrive and stop its processes before deleting local data.'
+    }
+    if ((Read-Value $policyKey 'DisablePersonalSync') -ne 1 -or @(Get-OurTasks).Count) {
+        throw 'Run windows:apply successfully before deleting local data.'
+    }
+    if ((Read-Value $runKey 'OneDrive') -or (Read-Value $runKey 'OneDriveSetup')) { throw 'A OneDrive startup entry remains.' }
+    # Check every registered shell folder, not just Desktop/Documents/Pictures.
+    $shell = Get-Item -LiteralPath $shellKey
+    foreach ($name in $shell.GetValueNames()) {
+        $value = $shell.GetValue($name)
+        if ($value -is [string] -and (Is-UnderRoot $value $localRoot)) { throw "A shell folder still references OneDrive: $name" }
+    }
+    if (-not (Test-Path -LiteralPath $localRoot)) { Write-Output 'Local OneDrive folder already absent.'; return }
+    $resolved = (Get-Item -LiteralPath $localRoot -Force).FullName.TrimEnd('\')
+    if (-not $resolved.Equals($localRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Resolved deletion target changed.' }
+    # Cloud placeholders are reparse points; symbolic links and junctions are refused.
+    $pending = New-Object 'System.Collections.Generic.Stack[string]'
+    $pending.Push($resolved)
+    while ($pending.Count) {
+        $dir = $pending.Pop()
+        $item = Get-Item -LiteralPath $dir -Force
+        if ($item.LinkType) { throw "Refusing a linked deletion target: $dir" }
+        foreach ($child in @(Get-ChildItem -LiteralPath $dir -Force)) {
+            if ($child.LinkType) { throw "Refusing a link inside the deletion target: $($child.FullName)" }
+            if ($child.PSIsContainer) { $pending.Push($child.FullName) }
+        }
+    }
+    # Only local filesystem deletion after the sync client is absent. No cloud API.
+    Remove-Item -LiteralPath $resolved -Recurse -Force
+    if (Test-Path -LiteralPath $resolved) { throw 'Local OneDrive deletion was incomplete.' }
+    if (Test-Path -LiteralPath $personalAccountKey) { Remove-Item -LiteralPath $personalAccountKey -Recurse }
+    Write-Output 'Deleted the local OneDrive folder. Cloud data was not accessed.'
+}
+
+switch ($Action) {
+    'Status' { Get-Status | ConvertTo-Json -Depth 5 }
+    'Plan' {
+        Get-Status | ConvertTo-Json -Depth 5
+        Write-Output "Desired theme: $Theme; OneDrive: $OneDrive"
+        if ($OneDrive -eq 'disabled') {
+            Write-Output 'Apply will block personal sync, uninstall the registered per-user client, restore redirected known folders without moving files, and remove current-user OneDrive startup tasks and Explorer integration.'
+        }
+        Write-Output 'Apply does not delete user files. Use the separate windows:onedrive:purge task to delete only the default local OneDrive folder.'
+    }
+    'Apply' {
+        if ($OneDrive -eq 'disabled') { Disable-OneDrive }
+        $light = if ($Theme -eq 'dark') { 0 } else { 1 }
+        $themeKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
+        Set-DWord $themeKey 'AppsUseLightTheme' $light
+        Set-DWord $themeKey 'SystemUsesLightTheme' $light
+        Get-Status | ConvertTo-Json -Depth 5
+        Write-Output 'Sign out later if Explorer or applications still show their previous locations or theme.'
+    }
+    'Purge' { Remove-LocalOneDriveData }
+}
 '''
 
+[tasks."windows:plan"]
+description = "Preview Windows preference changes without applying them"
+extends = "windows-settings"
+env.MISE_WINDOWS_ACTION = "Plan"
+
+[tasks."windows:apply"]
+description = "Apply theme and disable OneDrive for the current user; keep user files"
+extends = "windows-settings"
+env.MISE_WINDOWS_ACTION = "Apply"
+
 [tasks."windows:status"]
-description = "Read the current Windows and app color mode without changing it"
+description = "Read Windows theme, OneDrive installation, startup, and folder state"
+extends = "windows-settings"
+env.MISE_WINDOWS_ACTION = "Status"
+
+[tasks."windows:onedrive:purge"]
+description = "Delete only this user's local OneDrive folder after disabling OneDrive"
+confirm = "Permanently delete the local USERPROFILE/OneDrive folder? Cloud data is not touched. Run windows:apply first."
+extends = "windows-settings"
+env.MISE_WINDOWS_ACTION = "Purge"
+env.MISE_WINDOWS_PURGE_PATH = "{{ env.USERPROFILE }}/OneDrive"
+
+# WinGet bootstrap packages do not support state="absent". Use explicit tasks.
+# https://mise.jdx.dev/bootstrap/packages/winget.html
+# https://learn.microsoft.com/en-us/windows/package-manager/winget/uninstall
+# McAfee: use standard uninstall first, MCPR only if removal fails. Never delete
+# McAfee services, drivers, registry entries, or installation folders by hand.
+# https://www.mcafee.com/support/s/article/000001616?language=en_US
+# https://www.mcafee.com/support/s/article/000001669?language=en_US
+
+[task_templates.windows-apps]
 shell = "powershell -NoLogo -NoProfile -NonInteractive -Command"
+env.MISE_WINDOWS_REMOVE_APPX = "{{ vars.windows_remove_appx }}"
+env.MISE_WINDOWS_REMOVE_DESKTOP = "{{ vars.windows_remove_desktop }}"
 run = '''
 $ErrorActionPreference = 'Stop'
-if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
-    throw 'This task is for Windows only.'
+if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) { throw 'Windows only.' }
+$action = $env:MISE_WINDOWS_APPS_ACTION
+$appxNames = @($env:MISE_WINDOWS_REMOVE_APPX -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$desktopNames = @($env:MISE_WINDOWS_REMOVE_DESKTOP -split '\r?\n' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+$mcafeeNames = @('McAfee', 'マカフィーが提供するウェブアドバイザー', 'WebAdvisor by McAfee')
+
+function Find-DesktopApp([string]$Name) {
+    foreach ($base in @(
+        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
+        'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall',
+        'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'
+    )) {
+        if (Test-Path -LiteralPath $base) {
+            foreach ($key in Get-ChildItem -LiteralPath $base) {
+                $item = Get-ItemProperty -LiteralPath $key.PSPath
+                if ($item.DisplayName -ceq $Name) {
+                    [pscustomobject]@{ Name = $Name; ProductCode = $key.PSChildName }
+                }
+            }
+        }
+    }
 }
-$path = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
-$current = Get-ItemProperty -LiteralPath $path -ErrorAction SilentlyContinue
-foreach ($name in @('SystemUsesLightTheme', 'AppsUseLightTheme')) {
-    $value = if ($null -ne $current) { $current.$name } else { $null }
-    $mode = if ($null -eq $value) { 'not set' } elseif ($value -eq 0) { 'dark' } elseif ($value -eq 1) { 'light' } else { 'unknown' }
-    Write-Output ($name + ': ' + $mode)
+function Read-Protection {
+    try {
+        Get-MpComputerStatus -ErrorAction Stop |
+            Select-Object AMRunningMode, AntivirusEnabled, RealTimeProtectionEnabled
+    } catch { [pscustomobject]@{ Error = $_.Exception.Message } }
+}
+function Show-AppState {
+    [pscustomobject]@{
+        CurrentUserStoreApps = @($appxNames | ForEach-Object {
+            $targetName = $_
+            [pscustomobject]@{ Name = $targetName; Installed = (@(Get-AppxPackage -Name $targetName | Where-Object Name -CEQ $targetName).Count -gt 0) }
+        })
+        DesktopApps = @($desktopNames | ForEach-Object {
+            [pscustomobject]@{ Name = $_; Installed = (@(Find-DesktopApp $_).Count -gt 0) }
+        })
+        McAfee = @($mcafeeNames | ForEach-Object { Find-DesktopApp $_ })
+        Defender = Read-Protection
+    } | ConvertTo-Json -Depth 5
+}
+function Remove-DesktopApp([string]$Name, [switch]$Interactive) {
+    $found = @(Find-DesktopApp $Name)
+    if ($found.Count -eq 0) { Write-Output "Already absent: $Name"; return }
+    if ($found.Count -ne 1) { throw "Ambiguous installed product: $Name" }
+    $arguments = @('uninstall', '--product-code', $found[0].ProductCode, '--exact', '--disable-interactivity', '--accept-source-agreements')
+    $arguments += $(if ($Interactive) { '--interactive' } else { '--silent' })
+    & winget @arguments
+    $code = $LASTEXITCODE
+    if ($code -eq 3010 -or $code -eq 1641) {
+        Write-Warning 'The uninstaller reported that a restart is required.'
+    } elseif ($code -ne 0) {
+        if (-not $Interactive -and @(Find-DesktopApp $Name).Count -eq 0) {
+            Write-Warning "$Name returned exit $code but its installed-product registration is now absent. Verify the Store registration in the final status."
+        } else {
+            throw "Uninstall failed for $Name (exit $code). No fallback deletion will be attempted."
+        }
+    }
+    if (@(Find-DesktopApp $Name).Count) { throw "$Name is still registered. Complete its uninstaller or restart, then check again." }
+}
+function Remove-StoreApp([string]$Name) {
+    $packages = @(Get-AppxPackage -Name $Name | Where-Object Name -CEQ $Name)
+    foreach ($package in $packages) {
+        if ($package.IsFramework -or $package.NonRemovable) { throw "Refusing a framework/system package: $Name" }
+        Remove-AppxPackage -Package $package.PackageFullName -ErrorAction Stop
+    }
+    if (@(Get-AppxPackage -Name $Name | Where-Object Name -CEQ $Name).Count) { throw "Package still registered: $Name" }
+    Write-Output "Absent for current user: $Name"
+}
+
+switch ($action) {
+    'Plan' {
+        Show-AppState
+        Write-Output 'Apps apply removes only the listed desktop apps and current-user Store packages. No bulk or dependency cleanup.'
+        Write-Output 'McAfee removal is separate and uses its normal interactive uninstaller. Restart manually if requested; use MCPR only if normal removal fails.'
+    }
+    'Status' { Show-AppState }
+    'Apply' {
+        foreach ($name in $desktopNames) {
+            if ($mcafeeNames -contains $name) { throw 'McAfee must use the separate removal task.' }
+            Remove-DesktopApp $name
+        }
+        foreach ($name in $appxNames) {
+            if ($name -eq 'McAfeeWPSSparsePackage') { throw 'McAfee must use the separate removal task.' }
+            Remove-StoreApp $name
+        }
+        Show-AppState
+    }
+    'McAfee' {
+        foreach ($name in $mcafeeNames) { Remove-DesktopApp $name -Interactive }
+        Remove-StoreApp 'McAfeeWPSSparsePackage'
+        Show-AppState
+        $protection = Read-Protection
+        if ($protection.AMRunningMode -ne 'Normal' -or -not $protection.RealTimeProtectionEnabled) {
+            throw 'Defender is not confirmed active yet. Restart manually and run windows:apps:status before considering the security cleanup complete.'
+        }
+    }
+    default { throw 'Unknown app cleanup action.' }
 }
 '''
+
+[tasks."windows:apps:plan"]
+description = "Preview only the explicitly listed unwanted app removals"
+extends = "windows-apps"
+env.MISE_WINDOWS_APPS_ACTION = "Plan"
+
+[tasks."windows:apps:apply"]
+description = "Remove the listed unwanted apps; McAfee is handled separately"
+confirm = "Uninstall the listed unwanted apps for this PC/current user?"
+extends = "windows-apps"
+env.MISE_WINDOWS_APPS_ACTION = "Apply"
+
+[tasks."windows:apps:status"]
+description = "Check unwanted apps and Defender protection state"
+extends = "windows-apps"
+env.MISE_WINDOWS_APPS_ACTION = "Status"
+
+[tasks."windows:mcafee:remove"]
+description = "Start normal McAfee/WebAdvisor uninstallers and check Defender; user handles dialogs/restart"
+confirm = "Remove McAfee and WebAdvisor using their normal uninstallers? Complete any dialogs yourself and restart manually if asked."
+extends = "windows-apps"
+env.MISE_WINDOWS_APPS_ACTION = "McAfee"
